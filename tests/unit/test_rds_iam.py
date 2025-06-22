@@ -5,7 +5,12 @@ from unittest.mock import Mock, patch
 
 import pytest
 from botocore.exceptions import ClientError, NoCredentialsError
-from sqlalchemy import URL
+
+# Backwards compatibility for SQLAlchemy 1.4/2.0
+try:
+    from sqlalchemy import URL
+except ImportError:
+    from sqlalchemy.engine.url import URL
 
 from sqlalchemy_rds_iam.exceptions import RDSIAMAuthError
 from sqlalchemy_rds_iam.plugin import RDSIAMAuthPlugin, create_rds_iam_engine

@@ -28,7 +28,11 @@ def mock_boto_session():
 @pytest.fixture
 def sample_rds_url():
     """Sample RDS connection URL."""
-    from sqlalchemy import URL
+    # Backwards compatibility for SQLAlchemy 1.4/2.0
+    try:
+        from sqlalchemy import URL
+    except ImportError:
+        from sqlalchemy.engine.url import URL
 
     return URL.create(
         drivername="mysql+pymysql",
