@@ -6,13 +6,18 @@ from typing import Any, Dict, Optional
 
 import boto3
 from botocore.exceptions import ClientError, NoCredentialsError
-from sqlalchemy import CreateEnginePlugin, event
+from sqlalchemy import event
 
 # Backwards compatibility for SQLAlchemy 1.4/2.0
 try:
     from sqlalchemy import URL
 except ImportError:
     from sqlalchemy.engine.url import URL
+
+try:
+    from sqlalchemy import CreateEnginePlugin
+except ImportError:
+    from sqlalchemy.engine.events import CreateEnginePlugin
 
 from .exceptions import RDSIAMAuthError
 
