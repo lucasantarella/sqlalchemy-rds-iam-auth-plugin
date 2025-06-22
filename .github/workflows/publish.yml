@@ -79,7 +79,7 @@ jobs:
     needs: [build, test-install]
     runs-on: ubuntu-latest
     environment:
-      name: testpypi
+      name: release
       url: https://test.pypi.org/p/sqlalchemy-rds-iam-auth-plugin
     permissions:
       id-token: write
