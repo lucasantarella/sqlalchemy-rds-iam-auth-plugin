@@ -1,0 +1,23 @@
+include README.md
+include LICENSE
+include CHANGELOG.md
+include pyproject.toml
+include MANIFEST.in
+
+recursive-include src *.py
+recursive-include tests *.py
+
+exclude .gitignore
+exclude .pre-commit-config.yaml
+exclude tox.ini
+exclude .github/
+exclude docs/
+exclude examples/
+
+global-exclude *.pyc
+global-exclude *.pyo
+global-exclude *.orig
+global-exclude *.rej
+global-exclude *~
+global-exclude .DS_Store
+global-exclude __pycache__

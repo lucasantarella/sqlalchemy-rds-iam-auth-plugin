@@ -5,29 +5,26 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, Optional, Tuple
 
 import boto3
-from botocore.exceptions import (  # type: ignore[import-untyped] # noqa: E501
-    ClientError,
-    NoCredentialsError,
-)
-from sqlalchemy import event
+from botocore.exceptions import ClientError, NoCredentialsError
+from sqlalchemy import event  # type: ignore[import-not-found]
 
 # Backwards compatibility for SQLAlchemy 1.4/2.0
 try:
     from sqlalchemy import URL
 except ImportError:
-    from sqlalchemy.engine.url import URL
+    from sqlalchemy.engine.url import URL  # type: ignore[import-not-found]
 
 try:
     from sqlalchemy import CreateEnginePlugin
 except ImportError:
-    from sqlalchemy.engine import CreateEnginePlugin
+    from sqlalchemy.engine import CreateEnginePlugin  # type: ignore[import-not-found]
 
 from .exceptions import RDSIAMAuthError
 
 logger = logging.getLogger(__name__)
 
 
-class RDSIAMAuthPlugin(CreateEnginePlugin):
+class RDSIAMAuthPlugin(CreateEnginePlugin):  # type: ignore[misc]
     """
     SQLAlchemy plugin for AWS RDS IAM authentication.
 
@@ -77,7 +74,7 @@ class RDSIAMAuthPlugin(CreateEnginePlugin):
             # SQLAlchemy 1.3 and earlier API - can mutate URL directly
             query_params = url.query
             use_iam_auth_value = query_params.pop("use_iam_auth", "false")
-            self.use_iam_auth = str(use_iam_auth_value).lower() == "true"  # type: ignore[unreachable]  # noqa: E501
+            self.use_iam_auth = str(use_iam_auth_value).lower() == "true"  # noqa: E501
             self.aws_region = query_params.pop(
                 "aws_region", None
             ) or self._infer_region(self.host)

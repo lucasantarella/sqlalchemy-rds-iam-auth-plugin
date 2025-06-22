@@ -1,0 +1,173 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_bump:
+        description: 'Version bump type'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - major
+          - minor
+          - patch
+      prerelease:
+        description: 'Create a pre-release'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install build twine toml
+
+      - name: Configure Git
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+
+      - name: Get current version
+        id: current_version
+        run: |
+          VERSION=$(python -c "import toml; print(toml.load('pyproject.toml')['project']['version'])")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Bump version
+        id: bump_version
+        run: |
+          python << EOF
+          import toml
+          from packaging import version
+
+          # Load current version
+          with open('pyproject.toml', 'r') as f:
+              config = toml.load(f)
+
+          current = version.Version(config['project']['version'])
+
+          # Calculate new version
+          bump_type = '${{ github.event.inputs.version_bump }}'
+          if bump_type == 'major':
+              new_version = f"{current.major + 1}.0.0"
+          elif bump_type == 'minor':
+              new_version = f"{current.major}.{current.minor + 1}.0"
+          else:  # patch
+              new_version = f"{current.major}.{current.minor}.{current.micro + 1}"
+
+          # Add prerelease suffix if requested
+          if '${{ github.event.inputs.prerelease }}' == 'true':
+              new_version += "rc1"
+
+          # Update pyproject.toml
+          config['project']['version'] = new_version
+          with open('pyproject.toml', 'w') as f:
+              toml.dump(config, f)
+
+          print(f"NEW_VERSION={new_version}")
+          EOF
+
+      - name: Extract new version
+        id: new_version
+        run: |
+          NEW_VERSION=$(python -c "import toml; print(toml.load('pyproject.toml')['project']['version'])")
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Create changelog entry
+        run: |
+          cat << 'EOF' > CHANGELOG_ENTRY.md
+          ## [${{ steps.new_version.outputs.version }}] - $(date +%Y-%m-%d)
+
+          ### Added
+          - New features and enhancements
+
+          ### Changed
+          - Updated dependencies and improvements
+
+          ### Fixed
+          - Bug fixes and patches
+
+          ### Security
+          - Security improvements
+          EOF
+
+      - name: Build package
+        run: |
+          python -m build
+
+      - name: Test package
+        run: |
+          twine check dist/*
+          pip install dist/*.whl
+          python -c "from sqlalchemy_rds_iam import RDSIAMAuthPlugin; print('Package test successful')"
+
+      - name: Commit version bump
+        run: |
+          git add pyproject.toml
+          git commit -m "Bump version to ${{ steps.new_version.outputs.version }}"
+          git push
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ steps.new_version.outputs.version }}
+          release_name: Release v${{ steps.new_version.outputs.version }}
+          body_path: CHANGELOG_ENTRY.md
+          draft: false
+          prerelease: ${{ github.event.inputs.prerelease }}
+
+      - name: Upload Release Assets
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./dist/sqlalchemy_rds_iam-${{ steps.new_version.outputs.version }}-py3-none-any.whl
+          asset_name: sqlalchemy_rds_iam-${{ steps.new_version.outputs.version }}-py3-none-any.whl
+          asset_content_type: application/zip
+
+      - name: Upload Source Distribution
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./dist/sqlalchemy-rds-iam-${{ steps.new_version.outputs.version }}.tar.gz
+          asset_name: sqlalchemy-rds-iam-${{ steps.new_version.outputs.version }}.tar.gz
+          asset_content_type: application/gzip
+
+      - name: Create Pull Request for Changelog
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "Add changelog entry for v${{ steps.new_version.outputs.version }}"
+          title: "Update CHANGELOG for v${{ steps.new_version.outputs.version }}"
+          body: |
+            Automated changelog update for release v${{ steps.new_version.outputs.version }}
+
+            Please review and update the changelog entry as needed.
+          branch: changelog/v${{ steps.new_version.outputs.version }}
+          delete-branch: true
