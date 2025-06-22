@@ -18,12 +18,15 @@ on:
         default: false
         type: boolean
 
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write  # Required for OIDC
+
 jobs:
   release:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
+    environment: release  # Use environment for protection
 
     steps:
       - uses: actions/checkout@v4
@@ -40,31 +43,37 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install build twine toml
+          pip install build twine packaging
 
       - name: Configure Git
         run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
+          git config --local user.email "${{ vars.GIT_EMAIL || 'action@github.com' }}"
+          git config --local user.name "${{ vars.GIT_NAME || 'GitHub Action' }}"
 
       - name: Get current version
         id: current_version
         run: |
-          VERSION=$(python -c "import toml; print(toml.load('pyproject.toml')['project']['version'])")
+          VERSION=$(python -c "
+          import tomllib
+          with open('pyproject.toml', 'rb') as f:
+              data = tomllib.load(f)
+          print(data['project']['version'])
+          ")
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Bump version
         id: bump_version
         run: |
-          python << EOF
-          import toml
+          python << 'EOF'
+          import tomllib
+          import re
           from packaging import version
 
-          # Load current version
-          with open('pyproject.toml', 'r') as f:
-              config = toml.load(f)
+          # Read current version
+          with open('pyproject.toml', 'rb') as f:
+              data = tomllib.load(f)
 
-          current = version.Version(config['project']['version'])
+          current = version.Version(data['project']['version'])
 
           # Calculate new version
           bump_type = '${{ github.event.inputs.version_bump }}'
@@ -79,23 +88,50 @@ jobs:
           if '${{ github.event.inputs.prerelease }}' == 'true':
               new_version += "rc1"
 
-          # Update pyproject.toml
-          config['project']['version'] = new_version
-          with open('pyproject.toml', 'w') as f:
-              toml.dump(config, f)
+          # Update pyproject.toml using regex to preserve formatting
+          with open('pyproject.toml', 'r') as f:
+              content = f.read()
 
-          print(f"NEW_VERSION={new_version}")
+          updated_content = re.sub(
+              r'version = "[^"]*"',
+              f'version = "{new_version}"',
+              content
+          )
+
+          with open('pyproject.toml', 'w') as f:
+              f.write(updated_content)
+
+          print(f"Updated version from {current} to {new_version}")
           EOF
 
       - name: Extract new version
         id: new_version
         run: |
-          NEW_VERSION=$(python -c "import toml; print(toml.load('pyproject.toml')['project']['version'])")
+          NEW_VERSION=$(python -c "
+          import tomllib
+          with open('pyproject.toml', 'rb') as f:
+              data = tomllib.load(f)
+          print(data['project']['version'])
+          ")
           echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
 
-      - name: Create changelog entry
+      - name: Update changelog
         run: |
-          cat << 'EOF' > CHANGELOG_ENTRY.md
+          # Create changelog entry if CHANGELOG.md doesn't exist
+          if [ ! -f CHANGELOG.md ]; then
+            cat << 'EOF' > CHANGELOG.md
+          # Changelog
+
+          All notable changes to this project will be documented in this file.
+
+          The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+          and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+          EOF
+          fi
+
+          # Prepare new changelog entry
+          cat << EOF > CHANGELOG_ENTRY.md
           ## [${{ steps.new_version.outputs.version }}] - $(date +%Y-%m-%d)
 
           ### Added
@@ -109,22 +145,39 @@ jobs:
 
           ### Security
           - Security improvements
+
           EOF
+
+          # Insert new entry after the header
+          sed -i '/^# Changelog/r CHANGELOG_ENTRY.md' CHANGELOG.md
 
       - name: Build package
         run: |
           python -m build
+          echo "Built files:"
+          ls -la dist/
 
-      - name: Test package
+      - name: Test package installation
         run: |
+          # Check package integrity
           twine check dist/*
-          pip install dist/*.whl
-          python -c "from sqlalchemy_rds_iam import RDSIAMAuthPlugin; print('Package test successful')"
 
-      - name: Commit version bump
+          # Test installation
+          pip install dist/*.whl
+          python -c "
+          try:
+              from sqlalchemy_rds_iam import RDSIAMAuthPlugin
+              from sqlalchemy_rds_iam.plugin import create_rds_iam_engine
+              print('✓ Package imports successful')
+          except ImportError as e:
+              print(f'✗ Import failed: {e}')
+              exit(1)
+          "
+
+      - name: Commit version bump and changelog
         run: |
-          git add pyproject.toml
-          git commit -m "Bump version to ${{ steps.new_version.outputs.version }}"
+          git add pyproject.toml CHANGELOG.md
+          git commit -m "Release v${{ steps.new_version.outputs.version }}"
           git push
 
       - name: Create GitHub Release
@@ -139,35 +192,55 @@ jobs:
           draft: false
           prerelease: ${{ github.event.inputs.prerelease }}
 
-      - name: Upload Release Assets
+      - name: Upload wheel to release
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./dist/sqlalchemy_rds_iam-${{ steps.new_version.outputs.version }}-py3-none-any.whl
-          asset_name: sqlalchemy_rds_iam-${{ steps.new_version.outputs.version }}-py3-none-any.whl
+          asset_path: ./dist/sqlalchemy_rds_iam_auth_plugin-${{ steps.new_version.outputs.version }}-py3-none-any.whl
+          asset_name: sqlalchemy_rds_iam_auth_plugin-${{ steps.new_version.outputs.version }}-py3-none-any.whl
           asset_content_type: application/zip
 
-      - name: Upload Source Distribution
+      - name: Upload source distribution to release
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./dist/sqlalchemy-rds-iam-${{ steps.new_version.outputs.version }}.tar.gz
-          asset_name: sqlalchemy-rds-iam-${{ steps.new_version.outputs.version }}.tar.gz
+          asset_path: ./dist/sqlalchemy-rds-iam-auth-plugin-${{ steps.new_version.outputs.version }.tar.gz
+          asset_name: sqlalchemy-rds-iam-auth-plugin-${{ steps.new_version.outputs.version }}.tar.gz
           asset_content_type: application/gzip
 
-      - name: Create Pull Request for Changelog
-        uses: peter-evans/create-pull-request@v5
+      - name: Publish to Test PyPI
+        if: github.event.inputs.prerelease == 'true'
+        uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "Add changelog entry for v${{ steps.new_version.outputs.version }}"
-          title: "Update CHANGELOG for v${{ steps.new_version.outputs.version }}"
-          body: |
-            Automated changelog update for release v${{ steps.new_version.outputs.version }}
+          repository-url: https://test.pypi.org/legacy/
+          print-hash: true
 
-            Please review and update the changelog entry as needed.
-          branch: changelog/v${{ steps.new_version.outputs.version }}
-          delete-branch: true
+      - name: Publish to PyPI
+        if: github.event.inputs.prerelease == 'false'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          print-hash: true
+
+      - name: Create summary
+        run: |
+          cat << EOF >> $GITHUB_STEP_SUMMARY
+          # Release v${{ steps.new_version.outputs.version }} Published! 🚀
+
+          ## Package Details
+          - **Version**: ${{ steps.new_version.outputs.version }}
+          - **Type**: ${{ github.event.inputs.prerelease == 'true' && 'Pre-release' || 'Release' }}
+          - **PyPI**: ${{ github.event.inputs.prerelease == 'true' && 'Test PyPI' || 'PyPI' }}
+
+          ## Links
+          - [GitHub Release](https://github.com/${{ github.repository }}/releases/tag/v${{ steps.new_version.outputs.version }})
+          - [PyPI Package](https://pypi.org/project/sqlalchemy-rds-iam-auth-plugin/)
+
+          ## Installation
+          \`\`\`bash
+          pip install sqlalchemy-rds-iam-auth-plugin
+          \`\`\`
+          EOF
