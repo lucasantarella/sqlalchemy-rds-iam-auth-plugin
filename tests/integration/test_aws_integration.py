@@ -5,8 +5,14 @@ from unittest.mock import Mock, patch
 import boto3
 import pytest
 from moto import mock_aws
-from sqlalchemy import URL, create_engine
+from sqlalchemy import create_engine
 from sqlalchemy.pool import NullPool
+
+# Backwards compatibility for SQLAlchemy 1.4/2.0
+try:
+    from sqlalchemy import URL
+except ImportError:
+    from sqlalchemy.engine.url import URL
 
 from sqlalchemy_rds_iam.exceptions import RDSIAMAuthError
 from sqlalchemy_rds_iam.plugin import RDSIAMAuthPlugin, create_rds_iam_engine
