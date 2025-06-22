@@ -17,7 +17,7 @@ except ImportError:
 try:
     from sqlalchemy import CreateEnginePlugin
 except ImportError:
-    from sqlalchemy.engine.events import CreateEnginePlugin
+    from sqlalchemy.engine import CreateEnginePlugin
 
 from .exceptions import RDSIAMAuthError
 
