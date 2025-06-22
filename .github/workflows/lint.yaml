@@ -1,0 +1,20 @@
+# This workflow is now redundant since linting is included in test.yml
+# Keeping for backwards compatibility but redirecting to main test workflow
+
+name: Lint (Legacy)
+
+on:
+  push:
+    branches: [master, main, develop]
+  pull_request:
+    branches: [master, main, develop]
+
+jobs:
+  redirect-to-tests:
+    name: Redirect to main test workflow
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notice
+        run: |
+          echo "This workflow is deprecated. Linting is now part of the main test workflow."
+          echo "Please check the 'Tests' workflow for comprehensive testing including linting."
