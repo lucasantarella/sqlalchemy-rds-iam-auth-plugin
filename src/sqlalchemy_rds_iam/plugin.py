@@ -6,7 +6,13 @@ from typing import Any, Dict, Optional
 
 import boto3
 from botocore.exceptions import ClientError, NoCredentialsError
-from sqlalchemy import URL, CreateEnginePlugin, event
+from sqlalchemy import CreateEnginePlugin, event
+
+# Backwards compatibility for SQLAlchemy 1.4/2.0
+try:
+    from sqlalchemy import URL
+except ImportError:
+    from sqlalchemy.engine.url import URL
 
 from .exceptions import RDSIAMAuthError
 
@@ -45,14 +51,29 @@ class RDSIAMAuthPlugin(CreateEnginePlugin):
         self.port = url.port or self._get_default_port(url.drivername)
         self.user = url.username
 
-        # Extract query parameters
-        query_params = dict(url.query)
-        self.use_iam_auth = query_params.get("use_iam_auth", "false").lower() == "true"
-        self.aws_region = query_params.get("aws_region") or self._infer_region(
-            self.host
-        )
-        self.aws_profile = query_params.get("aws_profile")
-        self.ssl_ca = query_params.get("ssl_ca")
+        # Extract query parameters - handle SQLAlchemy 1.4+ immutable URLs
+        if hasattr(CreateEnginePlugin, "update_url"):
+            # SQLAlchemy 1.4+ API - URL is immutable, read parameters only
+            query_params = dict(url.query)
+            self.use_iam_auth = (
+                query_params.get("use_iam_auth", "false").lower() == "true"
+            )
+            self.aws_region = query_params.get("aws_region") or self._infer_region(
+                self.host
+            )
+            self.aws_profile = query_params.get("aws_profile")
+            self.ssl_ca = query_params.get("ssl_ca")
+        else:
+            # SQLAlchemy 1.3 and earlier API - can mutate URL directly
+            query_params = url.query
+            self.use_iam_auth = (
+                query_params.pop("use_iam_auth", "false").lower() == "true"
+            )
+            self.aws_region = query_params.pop(
+                "aws_region", None
+            ) or self._infer_region(self.host)
+            self.aws_profile = query_params.pop("aws_profile", None)
+            self.ssl_ca = query_params.pop("ssl_ca", None)
 
         # Token caching
         self._token_cache = {}
