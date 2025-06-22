@@ -5,7 +5,10 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, Optional, Tuple
 
 import boto3
-from botocore.exceptions import ClientError, NoCredentialsError  # type: ignore[import-untyped] # noqa: E501
+from botocore.exceptions import (  # type: ignore[import-untyped] # noqa: E501
+    ClientError,
+    NoCredentialsError,
+)
 from sqlalchemy import event
 
 # Backwards compatibility for SQLAlchemy 1.4/2.0
