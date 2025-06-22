@@ -54,7 +54,7 @@ jobs:
       - name: Upload test results
         uses: actions/upload-artifact@v4
         with:
-          name: test-results-${{ matrix.python-version }}-sqlalchemy-${{ matrix.sqlalchemy-version }}
+          name: test-results-${{ matrix.python-version }}-sqlalchemy-${{ matrix.sqlalchemy-version | replace('*', 'x') }}
           path: |
             coverage.xml
             .coverage
