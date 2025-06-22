@@ -2,10 +2,10 @@
 
 import logging
 from datetime import datetime, timedelta
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 import boto3
-from botocore.exceptions import ClientError, NoCredentialsError
+from botocore.exceptions import ClientError, NoCredentialsError  # type: ignore[import-untyped] # noqa: E501
 from sqlalchemy import event
 
 # Backwards compatibility for SQLAlchemy 1.4/2.0
@@ -60,9 +60,11 @@ class RDSIAMAuthPlugin(CreateEnginePlugin):
         if hasattr(CreateEnginePlugin, "update_url"):
             # SQLAlchemy 1.4+ API - URL is immutable, read parameters only
             query_params = dict(url.query)
-            self.use_iam_auth = (
-                query_params.get("use_iam_auth", "false").lower() == "true"
-            )
+            use_iam_auth_value = query_params.get("use_iam_auth", "false")
+            if isinstance(use_iam_auth_value, str):
+                self.use_iam_auth = use_iam_auth_value.lower() == "true"
+            else:
+                self.use_iam_auth = False
             self.aws_region = query_params.get("aws_region") or self._infer_region(
                 self.host
             )
@@ -71,9 +73,8 @@ class RDSIAMAuthPlugin(CreateEnginePlugin):
         else:
             # SQLAlchemy 1.3 and earlier API - can mutate URL directly
             query_params = url.query
-            self.use_iam_auth = (
-                query_params.pop("use_iam_auth", "false").lower() == "true"
-            )
+            use_iam_auth_value = query_params.pop("use_iam_auth", "false")
+            self.use_iam_auth = str(use_iam_auth_value).lower() == "true"  # type: ignore[unreachable]  # noqa: E501
             self.aws_region = query_params.pop(
                 "aws_region", None
             ) or self._infer_region(self.host)
@@ -81,8 +82,8 @@ class RDSIAMAuthPlugin(CreateEnginePlugin):
             self.ssl_ca = query_params.pop("ssl_ca", None)
 
         # Token caching
-        self._token_cache = {}
-        self._session = None
+        self._token_cache: Dict[str, Tuple[str, datetime]] = {}
+        self._session: Optional[boto3.Session] = None
 
         # Validate configuration
         if self.use_iam_auth:
@@ -106,7 +107,7 @@ class RDSIAMAuthPlugin(CreateEnginePlugin):
                 return parts[-4]
         return None
 
-    def _validate_config(self):
+    def _validate_config(self) -> None:
         """Validate required configuration."""
         if not self.host:
             raise RDSIAMAuthError("Host is required for IAM authentication")
@@ -122,7 +123,7 @@ class RDSIAMAuthPlugin(CreateEnginePlugin):
     def session(self) -> boto3.Session:
         """Lazy-load boto3 session."""
         if self._session is None:
-            session_kwargs = {}
+            session_kwargs: Dict[str, Any] = {}
             if self.aws_profile:
                 session_kwargs["profile_name"] = self.aws_profile
             self._session = boto3.Session(**session_kwargs)
@@ -159,8 +160,8 @@ class RDSIAMAuthPlugin(CreateEnginePlugin):
             logger.debug(
                 f"Generating new IAM token for {self.user}@{self.host}:{self.port}"
             )
-            client = self.session.client("rds", region_name=self.aws_region)
-            token = client.generate_db_auth_token(
+            client = self.session.client("rds", region_name=str(self.aws_region))
+            auth_token: str = client.generate_db_auth_token(
                 DBHostname=self.host,
                 Port=self.port,
                 DBUsername=self.user,
@@ -169,9 +170,9 @@ class RDSIAMAuthPlugin(CreateEnginePlugin):
 
             # Cache token
             expiry = now + timedelta(minutes=self.TOKEN_EXPIRY_MINUTES)
-            self._token_cache[cache_key] = (token, expiry)
+            self._token_cache[cache_key] = (auth_token, expiry)
 
-            return token
+            return auth_token
 
         except NoCredentialsError:
             raise RDSIAMAuthError(
@@ -183,7 +184,9 @@ class RDSIAMAuthPlugin(CreateEnginePlugin):
         except Exception as e:
             raise RDSIAMAuthError(f"Unexpected error generating token: {e}")
 
-    def _provide_token(self, dialect, conn_rec, cargs, cparams):
+    def _provide_token(
+        self, dialect: Any, conn_rec: Any, cargs: Any, cparams: Dict[str, Any]
+    ) -> None:
         """Provide authentication token to connection parameters."""
         try:
             cparams["password"] = self.get_authentication_token()
@@ -199,7 +202,9 @@ class RDSIAMAuthPlugin(CreateEnginePlugin):
             # Wrap unexpected exceptions
             raise RDSIAMAuthError(f"Failed to provide auth token: {e}")
 
-    def _handle_pool_invalidate(self, dbapi_conn, connection_record, exception):
+    def _handle_pool_invalidate(
+        self, dbapi_conn: Any, connection_record: Any, exception: Optional[Exception]
+    ) -> None:
         """Handle connection errors by invalidating stale connections."""
         if exception and "authentication" in str(exception).lower():
             # Clear token cache on auth failures
@@ -207,7 +212,7 @@ class RDSIAMAuthPlugin(CreateEnginePlugin):
             self._token_cache.pop(cache_key, None)
             logger.warning("Cleared token cache due to authentication error")
 
-    def engine_created(self, engine):
+    def engine_created(self, engine: Any) -> None:
         """Set up event listeners when engine is created."""
         if self.use_iam_auth:
             # Add token provider
@@ -241,8 +246,8 @@ def create_rds_iam_engine(
     region: Optional[str] = None,
     profile: Optional[str] = None,
     ssl_ca: Optional[str] = None,
-    **kwargs,
-):
+    **kwargs: Any,
+) -> Any:
     """
     Convenience function to create an engine with RDS IAM authentication.
 
