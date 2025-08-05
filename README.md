@@ -15,7 +15,7 @@ A SQLAlchemy plugin that enables AWS RDS IAM database authentication, automatica
 ## Installation
 
 ```bash
-pip install sqlalchemy-rds-iam
+pip install sqlalchemy-rds-iam-auth-plugin
 ```
 
 ## Prerequisites
